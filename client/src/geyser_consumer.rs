@@ -18,7 +18,7 @@ use std::{
 
 use jito_geyser_protos::solana::geyser::{
     geyser_client::GeyserClient, maybe_partial_account_update, EmptyRequest,
-    MaybePartialAccountUpdate, SubscribeAccountUpdatesRequest,
+    MaybePartialAccountUpdate, SubscribeAccountUpdatesRequest, SubscribeProgramsUpdatesRequest,
     SubscribePartialAccountUpdatesRequest, SubscribeSlotUpdateRequest, TimestampedAccountUpdate,
 };
 use log::*;
@@ -99,6 +99,57 @@ impl GeyserConsumer {
     ) -> Self {
         Self { client, exit }
     }
+
+        pub async fn consume_program_updates(
+        &self,
+        account_updates_tx: UnboundedSender<AccountUpdate>,
+        highest_rooted_slot: Arc<AtomicU64>,
+        // Oldest slot from root consumer willing to tolerate.
+        // e.g.
+        //    current slot = 12, max_rooted_slot_distance = 6
+        //    new slot = 13
+        //    new slot = 6 -> Error
+        max_rooted_slot_distance: u64,
+        programs: Vec<Vec<u8>>,
+    ) -> Result<()> {
+        let mut c = self.client.clone();
+        let mut account_write_sequences =
+            LruCache::new(NonZeroUsize::new(ACCOUNT_WRITE_SEQS_CACHE_SIZE).unwrap());
+
+        let resp = c
+            .subscribe_program_updates(SubscribeProgramsUpdatesRequest { programs })
+            .await?;
+        let oldest_write_slot = extract_highest_write_slot_header(&resp)?;
+        let mut stream = resp.into_inner();
+
+        let mut latest_write_slot = 0;
+        let mut tick = interval(Duration::from_secs(1));
+
+        while !self.exit.load(Ordering::Relaxed) {
+            tokio::select! {
+                maybe_message = stream.message() => {
+                    if let Some(account_update) = Self::process_account_update(
+                        maybe_message,
+                        &mut account_write_sequences,
+                        &highest_rooted_slot,
+                        oldest_write_slot,
+                        max_rooted_slot_distance,
+                    )? {
+                        latest_write_slot = latest_write_slot.max(account_update.slot);
+                        if account_updates_tx.send(account_update).is_err() {
+                            return Err(GeyserConsumerError::ConsumerChannelDisconnected);
+                        }
+                    }
+                }
+                _ = tick.tick() => {
+                    // helpful for checking exit faster vs. blocking on stream.message()
+                }
+            }
+        }
+
+        Ok(())
+    }
+
 
     pub async fn consume_account_updates(
         &self,
