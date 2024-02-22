@@ -15,13 +15,15 @@ use std::{
 
 use jito_geyser_protos::solana::geyser::geyser_client::GeyserClient;
 use solana_sdk::{clock::Slot, pubkey::Pubkey};
-use tonic::transport::{ClientTlsConfig, Endpoint};
+use tonic::{
+    service::interceptor::InterceptedService,
+    transport::{Channel, ClientTlsConfig, Endpoint},
+};
 
 use crate::{geyser_consumer::GeyserConsumer, interceptor::GrpcInterceptor};
 
 pub async fn connect(
     geyser_addr: String,
-    access_token: String,
     tls_config: Option<ClientTlsConfig>,
     exit: Arc<AtomicBool>,
 ) -> GeyserConsumer {
@@ -35,8 +37,7 @@ pub async fn connect(
     .await
     .expect("failed to connect");
 
-    let interceptor = GrpcInterceptor { access_token };
-    let c = GeyserClient::with_interceptor(ch, interceptor);
+    let c = GeyserClient::new(ch);
 
     GeyserConsumer::new(c, exit)
 }

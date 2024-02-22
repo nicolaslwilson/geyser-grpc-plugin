@@ -18,8 +18,9 @@ use std::{
 
 use jito_geyser_protos::solana::geyser::{
     geyser_client::GeyserClient, maybe_partial_account_update, EmptyRequest,
-    MaybePartialAccountUpdate, SubscribeAccountUpdatesRequest, SubscribeProgramsUpdatesRequest,
-    SubscribePartialAccountUpdatesRequest, SubscribeSlotUpdateRequest, TimestampedAccountUpdate,
+    MaybePartialAccountUpdate, SubscribeAccountUpdatesRequest,
+    SubscribePartialAccountUpdatesRequest, SubscribeProgramsUpdatesRequest,
+    SubscribeSlotUpdateRequest, TimestampedAccountUpdate,
 };
 use log::*;
 use lru::LruCache;
@@ -86,21 +87,18 @@ pub struct AccountWriteSeq {
 #[derive(Clone)]
 pub struct GeyserConsumer {
     /// Geyser client.
-    client: GeyserClient<InterceptedService<Channel, GrpcInterceptor>>,
+    client: GeyserClient<Channel>,
 
     /// Exit signal.
     exit: Arc<AtomicBool>,
 }
 
 impl GeyserConsumer {
-    pub fn new(
-        client: GeyserClient<InterceptedService<Channel, GrpcInterceptor>>,
-        exit: Arc<AtomicBool>,
-    ) -> Self {
+    pub fn new(client: GeyserClient<Channel>, exit: Arc<AtomicBool>) -> Self {
         Self { client, exit }
     }
 
-        pub async fn consume_program_updates(
+    pub async fn consume_program_updates(
         &self,
         account_updates_tx: UnboundedSender<AccountUpdate>,
         highest_rooted_slot: Arc<AtomicU64>,
@@ -149,7 +147,6 @@ impl GeyserConsumer {
 
         Ok(())
     }
-
 
     pub async fn consume_account_updates(
         &self,
